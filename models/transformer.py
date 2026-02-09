@@ -80,6 +80,42 @@ class MultiHeadAttention(nn.Module):
         output = self.out_proj(attn_output)
         return self.dropout(output)
     
+class PositionalEncoding(nn.Module):
+    """
+    Sinusoidal positional encoding.
+    Adds fixed sine/cosine waves based on position → helps model understand sequence order.
+    """
+    def __init__(self, d_model: int, max_len: int = 5000):
+        super().__init__()
+        
+        # Positional encoding matrix (once, fixed)
+        pe = torch.zeros(max_len, d_model)
+        position = torch.arange(0, max_len, dtype=torch.float).unsqueeze(1)         
+        
+        div_term = torch.exp(
+            torch.arange(0, d_model, 2).float() * (-math.log(10000.0) / d_model)
+        )  
+        
+        # Even dim
+        pe[:, 0::2] = torch.sin(position * div_term)
+        # Odd dim
+        pe[:, 1::2] = torch.cos(position * div_term)
+        
+        # Add batch dim → [1, max_len, d_model]
+        pe = pe.unsqueeze(0)
+        
+        # Reg as buffer
+        self.register_buffer('pe', pe)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        x: [batch_size, seq_len, d_model]
+        Returns: x + positional encoding (broadcasted)
+        """
+        # Slice to current sequence length
+        x = x + self.pe[:, :x.size(1), :]
+        return x
+    
 if __name__ == "__main__":
     torch.manual_seed(42)  
     
@@ -101,3 +137,19 @@ if __name__ == "__main__":
     print("Has NaN?", torch.isnan(output).any().item())
     print("Has Inf?", torch.isinf(output).any().item())
     print("Output mean / std:", output.mean().item(), output.std().item())
+
+if __name__ == "__main__":
+    torch.manual_seed(42)
+    
+    batch_size = 2
+    seq_len = 10
+    d_model = 64
+    
+    x = torch.randn(batch_size, seq_len, d_model)
+    
+    pe = PositionalEncoding(d_model=d_model, max_len=100)
+    output = pe(x)
+    
+    print("PositionalEncoding output shape:", output.shape)  # [2, 10, 64]
+    print("Added values (first position, first few dims):")
+    print((output[0, 0, :8] - x[0, 0, :8]).round(decimals=4))  
