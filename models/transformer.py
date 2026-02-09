@@ -116,6 +116,46 @@ class PositionalEncoding(nn.Module):
         x = x + self.pe[:, :x.size(1), :]
         return x
     
+import torch
+import torch.nn as nn
+
+class PositionWiseFeedForward(nn.Module):
+    """
+    Two linear layers with ReLU in between,pos wise FFNN
+    """
+    def __init__(self, d_model: int, d_ff: int, dropout: float = 0.1):
+        super().__init__()                           
+        self.linear1 = nn.Linear(d_model, d_ff)
+        self.linear2 = nn.Linear(d_ff, d_model)
+        self.dropout = nn.Dropout(dropout)
+        self.activation = nn.ReLU()                  
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.linear2(self.dropout(self.activation(self.linear1(x))))
+
+
+class DecoderLayer(nn.Module):
+    """
+    Decoder layer (self attn → add & norm → ffnn → add & norm)
+    """
+    def __init__(self, d_model: int, num_heads: int, d_ff: int, dropout: float = 0.1):
+        super().__init__()
+        self.self_attn = MultiHeadAttention(d_model, num_heads, dropout)
+        self.feed_forward = PositionWiseFeedForward(d_model, d_ff, dropout)
+        self.norm1 = nn.LayerNorm(d_model)
+        self.norm2 = nn.LayerNorm(d_model)
+        self.dropout = nn.Dropout(dropout)
+
+    def forward(self, x: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
+        # Masked self-attention + residual + norm
+        attn_output = self.self_attn(x, x, x, mask)              # Q = K = V = x
+        x = self.norm1(x + self.dropout(attn_output))
+
+        # Feed-forward + residual + norm
+        ff_output = self.feed_forward(x)
+        x = self.norm2(x + self.dropout(ff_output))
+
+        return x
+
 if __name__ == "__main__":
     torch.manual_seed(42)  
     
@@ -123,20 +163,22 @@ if __name__ == "__main__":
     seq_len = 8
     d_model = 64
     num_heads = 8
+    d_ff = 256
     
     x = torch.randn(batch_size, seq_len, d_model)
     
     # Causal mask
     mask = torch.tril(torch.ones(seq_len, seq_len)).view(1, 1, seq_len, seq_len)
     
-    mha = MultiHeadAttention(d_model=d_model, num_heads=num_heads, dropout=0.0)
+    layer = DecoderLayer(d_model=d_model, num_heads=num_heads, d_ff=d_ff, dropout=0.0)
     
-    output = mha(x, x, x, mask)
+    output = layer(x, mask)
     
-    print("MultiHeadAttention output shape:", output.shape)  # should be [2, 8, 64]
+    print("DecoderLayer output shape:", output.shape)          # [2, 16, 64]
     print("Has NaN?", torch.isnan(output).any().item())
     print("Has Inf?", torch.isinf(output).any().item())
-    print("Output mean / std:", output.mean().item(), output.std().item())
+    print("Output mean / std after one layer:", output.mean().item(), output.std().item())
+    
 
 if __name__ == "__main__":
     torch.manual_seed(42)
